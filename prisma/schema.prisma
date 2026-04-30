@@ -17,6 +17,8 @@ model Role {
 
   permissions RolePermission[]
   users       User[]
+
+  @@map("roles")
 }
 
 model RolePermission {
@@ -27,6 +29,7 @@ model RolePermission {
   role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
 
   @@id([role_id, permission_id])
+  @@map("role_permissions")
 }
 
 model User {
@@ -40,6 +43,8 @@ model User {
   updated_at    DateTime @updatedAt
 
   role Role @relation(fields: [role_id], references: [id])
+
+  @@map("users")
 }
 
 model Queue {
@@ -52,6 +57,8 @@ model Queue {
   updated_at DateTime @updatedAt
 
   tickets Ticket[]
+
+  @@map("queues")
 }
 
 model Ticket {
@@ -72,6 +79,8 @@ model Ticket {
   queue   Queue           @relation(fields: [queue_id], references: [id])
   tags    TicketTag[]
   history TicketHistory[]
+
+  @@map("tickets")
 }
 
 model TicketTag {
@@ -81,6 +90,7 @@ model TicketTag {
   ticket Ticket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
 
   @@id([ticket_id, tag])
+  @@map("ticket_tags")
 }
 
 model TicketHistory {
@@ -95,6 +105,8 @@ model TicketHistory {
   created_at DateTime @default(now())
 
   ticket Ticket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+
+  @@map("ticket_history")
 }
 
 model KbArticle {
@@ -106,6 +118,8 @@ model KbArticle {
   status     String   @default("draft")
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+
+  @@map("kb_articles")
 }
 
 model SlaRule {
@@ -117,9 +131,13 @@ model SlaRule {
   res      String?
   esc      String?
   active   Boolean @default(true)
+
+  @@map("sla_rules")
 }
 
 model Counter {
   key   String @id
   value Int    @default(0)
+
+  @@map("counters")
 }
