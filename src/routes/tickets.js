@@ -79,8 +79,16 @@ router.get('/:id', async (req, res, next) => {
 // POST /api/tickets
 router.post('/', async (req, res, next) => {
   try {
-    const { title, queue_id, category, priority = 'medium', description, tags = [], sla_deadline, dept } = req.body;
+    const { title, queue_id, category, priority = 'medium', description, tags = [], sla_deadline, dept, assignee_id } = req.body;
     if (!title || !queue_id) return res.status(400).json({ error: 'title y queue_id requeridos' });
+
+    // Resolve assignee
+    let assigneeName = null;
+    let assigneeId   = null;
+    if (assignee_id) {
+      const assignee = await prisma.user.findUnique({ where: { id: Number(assignee_id) } });
+      if (assignee) { assigneeId = assignee.id; assigneeName = assignee.name; }
+    }
 
     // Auto-calculate SLA deadline from active rules if not explicitly provided
     let computedDeadline = sla_deadline || null;
@@ -91,6 +99,11 @@ router.post('/', async (req, res, next) => {
       if (mins) computedDeadline = new Date(Date.now() + mins * 60 * 1000).toISOString();
     }
 
+    const historyEntries = [
+      { type: 'created', to_val: 'new', comment: description || 'Ticket creado.', category: 'Diagnóstico', agent_name: req.user.name },
+      ...(assigneeName ? [{ type: 'assign', from_val: '', to_val: assigneeName, comment: '', category: 'Reasignación', agent_name: req.user.name }] : []),
+    ];
+
     const id     = await nextTicketId();
     const ticket = await prisma.ticket.create({
       data: {
@@ -99,14 +112,16 @@ router.post('/', async (req, res, next) => {
         requester_email: req.user.email,
         queue_id, dept: dept || null, category: category || null,
         status: 'new', priority,
-        sla_deadline: computedDeadline,
+        sla_deadline:  computedDeadline,
+        assignee_id:   assigneeId,
+        assignee_name: assigneeName,
         tags:    { createMany: { data: tags.map(tag => ({ tag })) } },
-        history: { create: { type: 'created', to_val: 'new', comment: description || 'Ticket creado.', category: 'Diagnóstico', agent_name: req.user.name } },
+        history: { createMany: { data: historyEntries } },
       },
       include: TICKET_INCLUDE,
     });
 
-    actionLogger('TICKET_CREATED', `${ticket.id} "${title}" [${priority}] por ${req.user.name}`);
+    actionLogger('TICKET_CREATED', `${ticket.id} "${title}" [${priority}]${assigneeName ? ` → ${assigneeName}` : ''} por ${req.user.name}`);
     res.status(201).json({ ticket: fmt(ticket) });
   } catch (err) { next(err); }
 });
