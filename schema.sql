@@ -102,19 +102,21 @@ CREATE TABLE tickets (
     requester_name  TEXT             NOT NULL,
     requester_email TEXT             NOT NULL,
     assignee_name   TEXT,
+    assignee_id     INTEGER          REFERENCES users(id) ON DELETE SET NULL,
     queue_id        TEXT             REFERENCES queues(id) ON DELETE SET NULL,
     dept            TEXT,
     category        TEXT,
     status          ticket_status    NOT NULL DEFAULT 'new',
     priority        ticket_priority  NOT NULL DEFAULT 'medium',
-    sla_deadline    TEXT,                          -- almacenado como string libre, ej: '2026-04-29T12:14'
+    sla_deadline    TEXT,
     created_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON COLUMN tickets.id            IS 'Formato TK-NNNN generado por el backend';
 COMMENT ON COLUMN tickets.assignee_name IS 'NULL indica ticket sin asignar';
-COMMENT ON COLUMN tickets.sla_deadline  IS 'Fecha límite como texto; el backend gestiona el formato';
+COMMENT ON COLUMN tickets.assignee_id   IS 'FK a users — sincronizado con assignee_name';
+COMMENT ON COLUMN tickets.sla_deadline  IS 'ISO datetime calculado al crear según SLA rule activa';
 
 -- ── ticket_tags ───────────────────────────────────────────────
 CREATE TABLE ticket_tags (

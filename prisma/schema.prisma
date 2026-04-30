@@ -42,7 +42,8 @@ model User {
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
-  role Role @relation(fields: [role_id], references: [id])
+  role             Role     @relation(fields: [role_id], references: [id])
+  assigned_tickets Ticket[] @relation("TicketAssignee")
 
   @@map("users")
 }
@@ -67,6 +68,7 @@ model Ticket {
   requester_name  String
   requester_email String
   assignee_name   String?
+  assignee_id     Int?
   queue_id        String
   dept            String?
   category        String?
@@ -76,9 +78,10 @@ model Ticket {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
-  queue   Queue           @relation(fields: [queue_id], references: [id])
-  tags    TicketTag[]
-  history TicketHistory[]
+  queue    Queue           @relation(fields: [queue_id], references: [id])
+  assignee User?           @relation("TicketAssignee", fields: [assignee_id], references: [id])
+  tags     TicketTag[]
+  history  TicketHistory[]
 
   @@map("tickets")
 }

@@ -6,13 +6,28 @@ const router = Router();
 router.use(requireAuth);
 
 const TICKET_INCLUDE = {
-  queue:   { select: { name: true, color: true } },
-  tags:    { select: { tag: true } },
-  history: { orderBy: { created_at: 'asc' } },
+  queue:    { select: { name: true, color: true } },
+  assignee: { select: { id: true, name: true, email: true } },
+  tags:     { select: { tag: true } },
+  history:  { orderBy: { created_at: 'asc' } },
 };
 
-function fmt({ queue, tags, history, ...t }) {
-  return { ...t, queue_name: queue?.name ?? null, queue_color: queue?.color ?? null, tags: tags.map(x => x.tag), history };
+function fmt({ queue, assignee, tags, history, ...t }) {
+  return {
+    ...t,
+    queue_name:  queue?.name  ?? null,
+    queue_color: queue?.color ?? null,
+    assignee:    assignee ? { id: assignee.id, name: assignee.name, email: assignee.email } : null,
+    tags:        tags.map(x => x.tag),
+    history,
+  };
+}
+
+function parseSlaMinutes(str) {
+  if (!str) return null;
+  const m = str.match(/^(\d+)(h|m)$/);
+  if (!m) return null;
+  return m[2] === 'h' ? Number(m[1]) * 60 : Number(m[1]);
 }
 
 // GET /api/tickets
@@ -66,6 +81,15 @@ router.post('/', async (req, res, next) => {
     const { title, queue_id, category, priority = 'medium', description, tags = [], sla_deadline, dept } = req.body;
     if (!title || !queue_id) return res.status(400).json({ error: 'title y queue_id requeridos' });
 
+    // Auto-calculate SLA deadline from active rules if not explicitly provided
+    let computedDeadline = sla_deadline || null;
+    if (!computedDeadline) {
+      const rules = await prisma.slaRule.findMany({ where: { priority, active: true } });
+      const rule  = rules.find(r => dept && r.dept === dept) || rules.find(r => r.dept === 'all');
+      const mins  = parseSlaMinutes(rule?.res);
+      if (mins) computedDeadline = new Date(Date.now() + mins * 60 * 1000).toISOString();
+    }
+
     const id     = await nextTicketId();
     const ticket = await prisma.ticket.create({
       data: {
@@ -74,7 +98,7 @@ router.post('/', async (req, res, next) => {
         requester_email: req.user.email,
         queue_id, dept: dept || null, category: category || null,
         status: 'new', priority,
-        sla_deadline: sla_deadline || null,
+        sla_deadline: computedDeadline,
         tags:    { createMany: { data: tags.map(tag => ({ tag })) } },
         history: { create: { type: 'created', to_val: 'new', comment: description || 'Ticket creado.', category: 'Diagnóstico', agent_name: req.user.name } },
       },
@@ -142,11 +166,40 @@ router.post('/:id/move', requireRole('admin', 'agent'), async (req, res, next) =
 // PATCH /api/tickets/:id
 router.patch('/:id', requireRole('admin', 'agent'), async (req, res, next) => {
   try {
-    const allowed = ['assignee_name', 'priority', 'dept', 'category', 'sla_deadline'];
-    const data    = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Ticket no encontrado' });
 
-    const ticket = await prisma.ticket.update({ where: { id: req.params.id }, data, include: TICKET_INCLUDE })
-      .catch(() => null);
+    const allowed = ['priority', 'dept', 'category', 'sla_deadline'];
+    const data    = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+    const historyEntries = [];
+
+    if ('assignee_id' in req.body) {
+      const aid = req.body.assignee_id;
+      if (aid === null || aid === '') {
+        data.assignee_id   = null;
+        data.assignee_name = null;
+        if (existing.assignee_name) {
+          historyEntries.push({ type: 'assign', from_val: existing.assignee_name, to_val: '', comment: '', category: 'Reasignación', agent_name: req.user.name });
+        }
+      } else {
+        const user = await prisma.user.findUnique({ where: { id: Number(aid) } });
+        if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+        data.assignee_id   = user.id;
+        data.assignee_name = user.name;
+        if (existing.assignee_name !== user.name) {
+          historyEntries.push({ type: 'assign', from_val: existing.assignee_name || '', to_val: user.name, comment: '', category: 'Reasignación', agent_name: req.user.name });
+        }
+      }
+    }
+
+    const ticket = await prisma.ticket.update({
+      where: { id: req.params.id },
+      data:  {
+        ...data,
+        ...(historyEntries.length && { history: { createMany: { data: historyEntries } } }),
+      },
+      include: TICKET_INCLUDE,
+    }).catch(() => null);
     if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
 
     res.json({ ticket: fmt(ticket) });

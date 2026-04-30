@@ -4,7 +4,7 @@ import { prisma } from '../config/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth);
 
 function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, role_id: u.role_id, role_label: u.role?.label, role_color: u.role?.color, active: u.active, created_at: u.created_at, updated_at: u.updated_at };
@@ -28,7 +28,7 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', requireAdmin, async (req, res, next) => {
   try {
     const { name, email, password = 'equilybrio2026', role = 'agent' } = req.body;
     if (!name || !email) return res.status(400).json({ error: 'name y email requeridos' });
@@ -51,7 +51,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', requireAdmin, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const { name, email, role, password } = req.body;
@@ -82,7 +82,7 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 
-router.patch('/:id/toggle', async (req, res, next) => {
+router.patch('/:id/toggle', requireAdmin, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (id === req.user.id) return res.status(400).json({ error: 'No podés desactivarte a vos mismo' });
@@ -95,7 +95,7 @@ router.patch('/:id/toggle', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (id === req.user.id) return res.status(400).json({ error: 'No podés eliminarte a vos mismo' });
