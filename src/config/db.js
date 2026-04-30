@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 export const prisma = new PrismaClient();
+//f
 export async function nextTicketId() {
   const { value } = await prisma.counter.update({
     where: { key: 'ticket' },
