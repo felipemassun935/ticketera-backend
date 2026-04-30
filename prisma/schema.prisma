@@ -139,6 +139,18 @@ model SlaRule {
   @@map("sla_rules")
 }
 
+model ResponseTemplate {
+  id         Int      @id @default(autoincrement())
+  name       String
+  category   String?
+  content    String
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("response_templates")
+}
+
 model Counter {
   key   String @id
   value Int    @default(0)
