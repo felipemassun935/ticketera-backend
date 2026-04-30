@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          String   @id
+  label       String
+  description String   @default("")
+  color       String   @default("#888888")
+  editable    Boolean  @default(true)
+  created_at  DateTime @default(now())
+
+  permissions RolePermission[]
+  users       User[]
+}
+
+model RolePermission {
+  role_id       String
+  permission_id String
+  enabled       Boolean @default(false)
+
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  name          String
+  email         String   @unique
+  password_hash String
+  role_id       String
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  role Role @relation(fields: [role_id], references: [id])
+}
+
+model Queue {
+  id         String   @id
+  name       String
+  owner_name String?
+  color      String   @default("#888888")
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tickets Ticket[]
+}
+
+model Ticket {
+  id              String   @id
+  title           String
+  requester_name  String
+  requester_email String
+  assignee_name   String?
+  queue_id        String
+  dept            String?
+  category        String?
+  status          String   @default("new")
+  priority        String   @default("medium")
+  sla_deadline    String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  queue   Queue           @relation(fields: [queue_id], references: [id])
+  tags    TicketTag[]
+  history TicketHistory[]
+}
+
+model TicketTag {
+  ticket_id String
+  tag       String
+
+  ticket Ticket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+
+  @@id([ticket_id, tag])
+}
+
+model TicketHistory {
+  id         Int      @id @default(autoincrement())
+  ticket_id  String
+  type       String
+  from_val   String   @default("")
+  to_val     String   @default("")
+  comment    String   @default("")
+  category   String   @default("")
+  agent_name String
+  created_at DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+}
+
+model KbArticle {
+  id         String   @id
+  title      String
+  cat        String?
+  content    String   @default("")
+  views      Int      @default(0)
+  status     String   @default("draft")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model SlaRule {
+  id       Int     @id @default(autoincrement())
+  name     String
+  priority String
+  dept     String  @default("all")
+  r1       String?
+  res      String?
+  esc      String?
+  active   Boolean @default(true)
+}
+
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../config/db.js';
+import { prisma } from '../config/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
@@ -7,78 +7,93 @@ router.use(requireAuth);
 
 const ALL_PERMS = ['viewAllQueues','manageTickets','manageQueues','manageUsers','manageRoles','viewReports','manageSLA','viewKB','manageKB','accessAdmin'];
 
-function enrichRole(r, data) {
-  const perms = data.role_permissions.filter(p => p.role_id === r.id);
+function fmt({ permissions, users, ...r }) {
   return {
     ...r,
-    permissions: Object.fromEntries(ALL_PERMS.map(p => [p, perms.find(x => x.permission_id === p)?.enabled ?? false])),
-    user_count:  data.users.filter(u => u.role_id === r.id && u.active).length,
+    permissions: Object.fromEntries(ALL_PERMS.map(p => [p, permissions.find(x => x.permission_id === p)?.enabled ?? false])),
+    user_count: users.length,
   };
 }
 
+const ROLE_INCLUDE = {
+  permissions: true,
+  users: { where: { active: true }, select: { id: true } },
+};
+
 router.get('/', async (req, res, next) => {
   try {
-    await db.read();
-    res.json({ roles: db.data.roles.map(r => enrichRole(r, db.data)) });
+    const roles = await prisma.role.findMany({ include: ROLE_INCLUDE });
+    res.json({ roles: roles.map(fmt) });
   } catch (err) { next(err); }
 });
 
 router.get('/:id', async (req, res, next) => {
   try {
-    await db.read();
-    const role = db.data.roles.find(r => r.id === req.params.id);
+    const role = await prisma.role.findUnique({ where: { id: req.params.id }, include: ROLE_INCLUDE });
     if (!role) return res.status(404).json({ error: 'Rol no encontrado' });
-    res.json({ role: enrichRole(role, db.data) });
+    res.json({ role: fmt(role) });
   } catch (err) { next(err); }
 });
 
 router.post('/', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
     const { id, label, description = '', color = '#888888', permissions = {} } = req.body;
     if (!id || !label) return res.status(400).json({ error: 'id y label requeridos' });
-    if (db.data.roles.find(r => r.id === id)) return res.status(409).json({ error: `Ya existe el rol "${id}"` });
 
-    db.data.roles.push({ id, label, description, color, editable: true, created_at: new Date().toISOString() });
-    ALL_PERMS.forEach(p => db.data.role_permissions.push({ role_id: id, permission_id: p, enabled: !!permissions[p] }));
-    await db.write();
-    res.status(201).json({ role: enrichRole(db.data.roles.at(-1), db.data) });
-  } catch (err) { next(err); }
+    const role = await prisma.role.create({
+      data: {
+        id, label, description, color, editable: true,
+        permissions: { createMany: { data: ALL_PERMS.map(p => ({ permission_id: p, enabled: !!permissions[p] })) } },
+      },
+      include: ROLE_INCLUDE,
+    }).catch(e => {
+      if (e.code === 'P2002') throw Object.assign(new Error(`Ya existe el rol "${id}"`), { status: 409 });
+      throw e;
+    });
+
+    res.status(201).json({ role: fmt(role) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 router.patch('/:id', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const idx = db.data.roles.findIndex(r => r.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: 'Rol no encontrado' });
+    const existing = await prisma.role.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Rol no encontrado' });
 
-    const role = db.data.roles[idx];
     const { label, description, color, permissions } = req.body;
-    db.data.roles[idx] = { ...role, ...(label && { label }), ...(description !== undefined && { description }), ...(color && { color }) };
+    const data = {
+      ...(label                    && { label }),
+      ...(description !== undefined && { description }),
+      ...(color                    && { color }),
+    };
 
-    if (permissions && role.editable) {
-      Object.entries(permissions).forEach(([p, v]) => {
-        const pi = db.data.role_permissions.findIndex(x => x.role_id === role.id && x.permission_id === p);
-        if (pi !== -1) db.data.role_permissions[pi] = { ...db.data.role_permissions[pi], enabled: !!v };
-      });
+    if (permissions && existing.editable) {
+      await Promise.all(
+        Object.entries(permissions).map(([p, v]) =>
+          prisma.rolePermission.updateMany({
+            where: { role_id: existing.id, permission_id: p },
+            data:  { enabled: !!v },
+          })
+        )
+      );
     }
 
-    await db.write();
-    res.json({ role: enrichRole(db.data.roles[idx], db.data) });
+    const role = await prisma.role.update({ where: { id: req.params.id }, data, include: ROLE_INCLUDE });
+    res.json({ role: fmt(role) });
   } catch (err) { next(err); }
 });
 
 router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const role = db.data.roles.find(r => r.id === req.params.id);
+    const role = await prisma.role.findUnique({ where: { id: req.params.id }, include: { users: { select: { id: true } } } });
     if (!role)          return res.status(404).json({ error: 'Rol no encontrado' });
     if (!role.editable) return res.status(400).json({ error: 'Los roles del sistema no se pueden eliminar' });
-    const usersWithRole = db.data.users.filter(u => u.role_id === req.params.id).length;
-    if (usersWithRole > 0) return res.status(409).json({ error: `Hay ${usersWithRole} usuarios con este rol` });
-    db.data.roles            = db.data.roles.filter(r => r.id !== req.params.id);
-    db.data.role_permissions = db.data.role_permissions.filter(p => p.role_id !== req.params.id);
-    await db.write();
+    if (role.users.length > 0) return res.status(409).json({ error: `Hay ${role.users.length} usuarios con este rol` });
+
+    await prisma.role.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

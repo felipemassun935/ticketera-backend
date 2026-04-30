@@ -1,74 +1,94 @@
 import { Router } from 'express';
-import { db } from '../config/db.js';
+import { prisma } from '../config/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requireAuth);
-const now = () => new Date().toISOString();
 
-function withCount(q, data) {
-  return {
-    ...q,
-    ticket_count: data.tickets.filter(t => t.queue_id === q.id && !['closed','resolved'].includes(t.status)).length,
-  };
+function fmt({ tickets, ...q }) {
+  return { ...q, ticket_count: tickets.length };
 }
+
+const QUEUE_INCLUDE = {
+  tickets: { where: { status: { notIn: ['closed', 'resolved'] } }, select: { id: true } },
+};
 
 router.get('/', async (req, res, next) => {
   try {
-    await db.read();
-    res.json({ queues: db.data.queues.map(q => withCount(q, db.data)) });
+    const queues = await prisma.queue.findMany({ include: QUEUE_INCLUDE });
+    res.json({ queues: queues.map(fmt) });
   } catch (err) { next(err); }
 });
 
 router.post('/', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
     const { id, name, owner_name, color = '#888888' } = req.body;
     if (!id || !name) return res.status(400).json({ error: 'id y name requeridos' });
-    if (db.data.queues.find(q => q.id === id)) return res.status(409).json({ error: `Ya existe la bandeja "${id}"` });
 
-    const queue = { id, name, owner_name: owner_name || null, color, active: true, created_at: now(), updated_at: now() };
-    db.data.queues.push(queue);
-    await db.write();
-    res.status(201).json({ queue: withCount(queue, db.data) });
-  } catch (err) { next(err); }
+    const queue = await prisma.queue.create({
+      data: { id, name, owner_name: owner_name || null, color, active: true },
+      include: QUEUE_INCLUDE,
+    }).catch(e => {
+      if (e.code === 'P2002') throw Object.assign(new Error(`Ya existe la bandeja "${id}"`), { status: 409 });
+      throw e;
+    });
+
+    res.status(201).json({ queue: fmt(queue) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 router.patch('/:id', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const idx = db.data.queues.findIndex(q => q.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: 'Bandeja no encontrada' });
-
     const { name, owner_name, color } = req.body;
-    db.data.queues[idx] = { ...db.data.queues[idx], ...(name && { name }), ...(owner_name !== undefined && { owner_name }), ...(color && { color }), updated_at: now() };
-    await db.write();
-    res.json({ queue: withCount(db.data.queues[idx], db.data) });
-  } catch (err) { next(err); }
+    const data = {
+      ...(name                     && { name }),
+      ...(owner_name !== undefined && { owner_name }),
+      ...(color                    && { color }),
+    };
+
+    const queue = await prisma.queue.update({ where: { id: req.params.id }, data, include: QUEUE_INCLUDE })
+      .catch(e => {
+        if (e.code === 'P2025') throw Object.assign(new Error('Bandeja no encontrada'), { status: 404 });
+        throw e;
+      });
+
+    res.json({ queue: fmt(queue) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 router.patch('/:id/toggle', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const idx = db.data.queues.findIndex(q => q.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: 'Bandeja no encontrada' });
-    db.data.queues[idx] = { ...db.data.queues[idx], active: !db.data.queues[idx].active, updated_at: now() };
-    await db.write();
-    res.json({ queue: withCount(db.data.queues[idx], db.data) });
+    const existing = await prisma.queue.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Bandeja no encontrada' });
+
+    const queue = await prisma.queue.update({ where: { id: req.params.id }, data: { active: !existing.active }, include: QUEUE_INCLUDE });
+    res.json({ queue: fmt(queue) });
   } catch (err) { next(err); }
 });
 
 router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const queue = db.data.queues.find(q => q.id === req.params.id);
-    if (!queue) return res.status(404).json({ error: 'Bandeja no encontrada' });
-    const active = db.data.tickets.filter(t => t.queue_id === req.params.id && !['closed','resolved'].includes(t.status)).length;
-    if (active > 0) return res.status(409).json({ error: `La bandeja tiene ${active} tickets activos` });
-    db.data.queues = db.data.queues.filter(q => q.id !== req.params.id);
-    await db.write();
+    const activeCount = await prisma.ticket.count({
+      where: { queue_id: req.params.id, status: { notIn: ['closed', 'resolved'] } },
+    });
+    if (activeCount > 0) return res.status(409).json({ error: `La bandeja tiene ${activeCount} tickets activos` });
+
+    await prisma.queue.delete({ where: { id: req.params.id } }).catch(e => {
+      if (e.code === 'P2025') throw Object.assign(new Error('Bandeja no encontrada'), { status: 404 });
+      throw e;
+    });
+
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 export default router;

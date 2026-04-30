@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db, nextSlaId } from '../config/db.js';
+import { prisma } from '../config/db.js';
 import { requireAuth, requireRole, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
@@ -7,57 +7,71 @@ router.use(requireAuth, requireRole('admin', 'agent'));
 
 router.get('/', async (req, res, next) => {
   try {
-    await db.read();
-    res.json({ rules: db.data.sla_rules });
+    const rules = await prisma.slaRule.findMany();
+    res.json({ rules });
   } catch (err) { next(err); }
 });
 
 router.post('/', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
     const { name, priority, dept = 'all', r1, res: resolution, esc } = req.body;
     if (!name || !priority) return res.status(400).json({ error: 'name y priority requeridos' });
-    const rule = { id: nextSlaId(), name, priority, dept, r1: r1 || null, res: resolution || null, esc: esc || null, active: true };
-    db.data.sla_rules.push(rule);
-    await db.write();
+
+    const rule = await prisma.slaRule.create({
+      data: { name, priority, dept, r1: r1 || null, res: resolution || null, esc: esc || null, active: true },
+    });
     res.status(201).json({ rule });
   } catch (err) { next(err); }
 });
 
 router.patch('/:id', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const id  = Number(req.params.id);
-    const idx = db.data.sla_rules.findIndex(r => r.id === id);
-    if (idx === -1) return res.status(404).json({ error: 'Regla no encontrada' });
+    const id = Number(req.params.id);
     const { name, priority, dept, r1, res: resolution, esc } = req.body;
-    db.data.sla_rules[idx] = { ...db.data.sla_rules[idx], ...(name && { name }), ...(priority && { priority }), ...(dept && { dept }), ...(r1 !== undefined && { r1 }), ...(resolution !== undefined && { res: resolution }), ...(esc !== undefined && { esc }) };
-    await db.write();
-    res.json({ rule: db.data.sla_rules[idx] });
-  } catch (err) { next(err); }
+    const data = {
+      ...(name                  && { name }),
+      ...(priority              && { priority }),
+      ...(dept                  && { dept }),
+      ...(r1 !== undefined      && { r1 }),
+      ...(resolution !== undefined && { res: resolution }),
+      ...(esc !== undefined     && { esc }),
+    };
+
+    const rule = await prisma.slaRule.update({ where: { id }, data }).catch(e => {
+      if (e.code === 'P2025') throw Object.assign(new Error('Regla no encontrada'), { status: 404 });
+      throw e;
+    });
+
+    res.json({ rule });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 router.patch('/:id/toggle', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
-    const id  = Number(req.params.id);
-    const idx = db.data.sla_rules.findIndex(r => r.id === id);
-    if (idx === -1) return res.status(404).json({ error: 'Regla no encontrada' });
-    db.data.sla_rules[idx] = { ...db.data.sla_rules[idx], active: !db.data.sla_rules[idx].active };
-    await db.write();
-    res.json({ rule: db.data.sla_rules[idx] });
+    const id       = Number(req.params.id);
+    const existing = await prisma.slaRule.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Regla no encontrada' });
+
+    const rule = await prisma.slaRule.update({ where: { id }, data: { active: !existing.active } });
+    res.json({ rule });
   } catch (err) { next(err); }
 });
 
 router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
-    await db.read();
     const id = Number(req.params.id);
-    if (!db.data.sla_rules.find(r => r.id === id)) return res.status(404).json({ error: 'Regla no encontrada' });
-    db.data.sla_rules = db.data.sla_rules.filter(r => r.id !== id);
-    await db.write();
+    await prisma.slaRule.delete({ where: { id } }).catch(e => {
+      if (e.code === 'P2025') throw Object.assign(new Error('Regla no encontrada'), { status: 404 });
+      throw e;
+    });
     res.json({ ok: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 export default router;
