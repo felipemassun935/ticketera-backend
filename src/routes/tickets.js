@@ -121,21 +121,34 @@ router.post('/:id/update', requireRole('admin', 'agent'), async (req, res, next)
     if (!existing) return res.status(404).json({ error: 'Ticket no encontrado' });
 
     const historyEntries = [];
+    const ticketData     = {};
+
     if (status && status !== existing.status) {
+      ticketData.status = status;
       historyEntries.push({ type: 'status_change', from_val: existing.status, to_val: status, comment: '', category, agent_name: req.user.name });
+
+      if (status === 'paused') {
+        // Freeze the SLA clock
+        ticketData.sla_paused_at = new Date();
+        actionLogger('SLA_PAUSED', `${req.params.id} por ${req.user.name}`);
+      } else if (existing.status === 'paused' && existing.sla_paused_at && existing.sla_deadline) {
+        // Extend deadline by however long the ticket was paused
+        const pausedMs       = Date.now() - new Date(existing.sla_paused_at).getTime();
+        const newDeadline    = new Date(new Date(existing.sla_deadline).getTime() + pausedMs);
+        ticketData.sla_deadline   = newDeadline.toISOString();
+        ticketData.sla_paused_at  = null;
+        actionLogger('SLA_RESUMED', `${req.params.id} deadline → ${newDeadline.toISOString()} (+${Math.round(pausedMs / 60000)}m) por ${req.user.name}`);
+      }
     }
     historyEntries.push({ type: 'comment', from_val: '', to_val: '', comment, category, agent_name: req.user.name });
 
     const ticket = await prisma.ticket.update({
       where: { id: req.params.id },
-      data:  {
-        ...(status && status !== existing.status && { status }),
-        history: { createMany: { data: historyEntries } },
-      },
+      data:  { ...ticketData, history: { createMany: { data: historyEntries } } },
       include: TICKET_INCLUDE,
     });
 
-    if (status && status !== existing.status) {
+    if (status && status !== existing.status && status !== 'paused') {
       actionLogger('STATUS_CHANGE', `${req.params.id} ${existing.status} → ${status} por ${req.user.name}`);
     }
     res.json({ ticket: fmt(ticket) });
@@ -208,6 +221,11 @@ router.patch('/:id', requireRole('admin', 'agent'), async (req, res, next) => {
     }).catch(() => null);
     if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
 
+    const assignEntry = historyEntries.find(h => h.type === 'assign');
+    if (assignEntry) {
+      const to = assignEntry.to_val || 'sin asignar';
+      actionLogger('ASSIGNED', `${req.params.id} → ${to} por ${req.user.name}`);
+    }
     res.json({ ticket: fmt(ticket) });
   } catch (err) { next(err); }
 });

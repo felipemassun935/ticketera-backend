@@ -3,8 +3,11 @@ export function notFound(req, res) {
 }
 
 export function errorHandler(err, req, res, _next) {
-  console.error(err);
   const status = err.status || 500;
+  if (status >= 500) {
+    const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    process.stderr.write(`${ts}  ERROR  ${req.method} ${req.originalUrl}\n${err.stack || err.message}\n`);
+  }
   res.status(status).json({
     error:   err.message || 'Error interno del servidor',
     ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),

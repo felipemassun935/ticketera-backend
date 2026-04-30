@@ -109,6 +109,7 @@ CREATE TABLE tickets (
     status          ticket_status    NOT NULL DEFAULT 'new',
     priority        ticket_priority  NOT NULL DEFAULT 'medium',
     sla_deadline    TEXT,
+    sla_paused_at   TIMESTAMPTZ,
     created_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
@@ -117,6 +118,7 @@ COMMENT ON COLUMN tickets.id            IS 'Formato TK-NNNN generado por el back
 COMMENT ON COLUMN tickets.assignee_name IS 'NULL indica ticket sin asignar';
 COMMENT ON COLUMN tickets.assignee_id   IS 'FK a users — sincronizado con assignee_name';
 COMMENT ON COLUMN tickets.sla_deadline  IS 'ISO datetime calculado al crear según SLA rule activa';
+COMMENT ON COLUMN tickets.sla_paused_at IS 'Momento en que se pausó el SLA; NULL si no está pausado';
 
 -- ── ticket_tags ───────────────────────────────────────────────
 CREATE TABLE ticket_tags (
