@@ -10,8 +10,10 @@ import queueRoutes  from './src/routes/queues.js';
 import userRoutes   from './src/routes/users.js';
 import roleRoutes   from './src/routes/roles.js';
 import kbRoutes     from './src/routes/kb.js';
-import slaRoutes    from './src/routes/sla.js';
+import slaRoutes     from './src/routes/sla.js';
+import reportsRoutes from './src/routes/reports.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
+import { requestLogger }          from './src/middleware/logger.js';
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +21,7 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173', credentials: true }));
 app.use(express.json());
+app.use(requestLogger);
 
 app.use('/api/auth',      authRoutes);
 app.use('/api/tickets',   ticketRoutes);
@@ -27,6 +30,7 @@ app.use('/api/users',     userRoutes);
 app.use('/api/roles',     roleRoutes);
 app.use('/api/kb',        kbRoutes);
 app.use('/api/sla-rules', slaRoutes);
+app.use('/api/reports',  reportsRoutes);
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 

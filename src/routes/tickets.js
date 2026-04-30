@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma, nextTicketId } from '../config/db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { actionLogger } from '../middleware/logger.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -105,6 +106,7 @@ router.post('/', async (req, res, next) => {
       include: TICKET_INCLUDE,
     });
 
+    actionLogger('TICKET_CREATED', `${ticket.id} "${title}" [${priority}] por ${req.user.name}`);
     res.status(201).json({ ticket: fmt(ticket) });
   } catch (err) { next(err); }
 });
@@ -133,6 +135,9 @@ router.post('/:id/update', requireRole('admin', 'agent'), async (req, res, next)
       include: TICKET_INCLUDE,
     });
 
+    if (status && status !== existing.status) {
+      actionLogger('STATUS_CHANGE', `${req.params.id} ${existing.status} → ${status} por ${req.user.name}`);
+    }
     res.json({ ticket: fmt(ticket) });
   } catch (err) { next(err); }
 });
@@ -159,6 +164,7 @@ router.post('/:id/move', requireRole('admin', 'agent'), async (req, res, next) =
       include: TICKET_INCLUDE,
     });
 
+    actionLogger('QUEUE_MOVE', `${req.params.id} ${existing.queue_id} → ${queue_id} por ${req.user.name}`);
     res.json({ ticket: fmt(ticket) });
   } catch (err) { next(err); }
 });
