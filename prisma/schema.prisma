@@ -44,6 +44,8 @@ model User {
 
   role             Role     @relation(fields: [role_id], references: [id])
   assigned_tickets Ticket[] @relation("TicketAssignee")
+  hour_entries     HourEntry[] @relation("HourEntryUser")
+  reviewed_hours   HourEntry[] @relation("HourEntryReviewer")
 
   @@map("users")
 }
@@ -58,8 +60,33 @@ model Queue {
   updated_at DateTime @updatedAt
 
   tickets Ticket[]
+  hour_entries HourEntry[]
 
   @@map("queues")
+}
+
+model HourEntry {
+  id                Int       @id @default(autoincrement())
+  user_id           Int
+  project_id        String
+  date              DateTime
+  hours             Decimal   @db.Decimal(5, 2)
+  description       String
+  status            String    @default("pending")
+  reviewed_by       Int?
+  reviewed_at       DateTime?
+  rejection_comment String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  user     User  @relation("HourEntryUser", fields: [user_id], references: [id], onDelete: Cascade)
+  project  Queue @relation(fields: [project_id], references: [id])
+  reviewer User? @relation("HourEntryReviewer", fields: [reviewed_by], references: [id])
+
+  @@index([user_id, date])
+  @@index([project_id])
+  @@index([status])
+  @@map("hour_entries")
 }
 
 model Ticket {

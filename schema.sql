@@ -26,6 +26,7 @@ CREATE TYPE ticket_status   AS ENUM ('new', 'open', 'pending', 'resolved', 'clos
 CREATE TYPE ticket_priority  AS ENUM ('urgent', 'high', 'medium', 'low');
 CREATE TYPE history_type     AS ENUM ('created', 'status_change', 'queue_move', 'assign', 'comment');
 CREATE TYPE article_status   AS ENUM ('published', 'draft');
+CREATE TYPE hour_entry_status AS ENUM ('pending', 'approved', 'rejected');
 
 -- ============================================================
 --  SECUENCIAS  (para referencia / uso directo en SQL)
@@ -181,6 +182,31 @@ CREATE TABLE counters (
 
 COMMENT ON TABLE counters IS 'Contadores para IDs custom (TK-NNNN, KB-NNN). Gestionados por el backend.';
 
+-- ── hour_entries ──────────────────────────────────────────────
+CREATE TABLE hour_entries (
+    id                SERIAL            PRIMARY KEY,
+    user_id           INTEGER           NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id        TEXT              NOT NULL REFERENCES queues(id),
+    date              TIMESTAMPTZ       NOT NULL,
+    hours             NUMERIC(5,2)      NOT NULL,
+    description       TEXT              NOT NULL,
+    status            hour_entry_status NOT NULL DEFAULT 'pending',
+    reviewed_by       INTEGER           REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at       TIMESTAMPTZ,
+    rejection_comment TEXT,
+    created_at        TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT hour_entries_hours_range CHECK (hours >= 0.25 AND hours <= 24),
+    CONSTRAINT hour_entries_quarter_step CHECK ((hours * 4) = FLOOR(hours * 4))
+);
+
+CREATE INDEX idx_hour_entries_user_date ON hour_entries(user_id, date);
+CREATE INDEX idx_hour_entries_project   ON hour_entries(project_id);
+CREATE INDEX idx_hour_entries_status    ON hour_entries(status);
+
+COMMENT ON TABLE hour_entries IS 'Carga diaria de horas por usuario y proyecto, con flujo de aprobación admin.';
+
 -- ============================================================
 --  FUNCIÓN updated_at (trigger automático)
 -- ============================================================
@@ -207,6 +233,10 @@ CREATE TRIGGER trg_tickets_updated_at
 
 CREATE TRIGGER trg_kb_updated_at
     BEFORE UPDATE ON kb_articles
+    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
+CREATE TRIGGER trg_hour_entries_updated_at
+    BEFORE UPDATE ON hour_entries
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
 -- ============================================================

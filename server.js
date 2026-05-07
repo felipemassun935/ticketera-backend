@@ -13,6 +13,7 @@ import kbRoutes     from './src/routes/kb.js';
 import slaRoutes     from './src/routes/sla.js';
 import reportsRoutes   from './src/routes/reports.js';
 import templateRoutes  from './src/routes/templates.js';
+import hourRoutes, { adminHoursRouter } from './src/routes/hours.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 import { requestLogger }          from './src/middleware/logger.js';
 
@@ -33,6 +34,8 @@ app.use('/api/kb',        kbRoutes);
 app.use('/api/sla-rules', slaRoutes);
 app.use('/api/reports',   reportsRoutes);
 app.use('/api/templates', templateRoutes);
+app.use('/api/hours',     hourRoutes);
+app.use('/api/admin/hours', adminHoursRouter);
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
