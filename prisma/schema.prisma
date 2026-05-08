@@ -166,6 +166,20 @@ model SlaRule {
   @@map("sla_rules")
 }
 
+model Priority {
+  id         String   @id
+  label      String
+  color      String   @default("#888888")
+  r1         String?
+  res        String?
+  esc        String?
+  active     Boolean  @default(true)
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+
+  @@map("priorities")
+}
+
 model ResponseTemplate {
   id         Int      @id @default(autoincrement())
   name       String

@@ -138,6 +138,16 @@ export async function runSeed() {
     ],
   });
 
+  const PRIORITIES = [
+    { id: 'urgent', label: 'Urgente', color: '#c46262', r1: '1h',  res: '4h',  esc: '2h',  sort_order: 0 },
+    { id: 'high',   label: 'Alta',    color: '#c98c4a', r1: '4h',  res: '8h',  esc: '6h',  sort_order: 1 },
+    { id: 'medium', label: 'Media',   color: '#6892b4', r1: '8h',  res: '24h', esc: '16h', sort_order: 2 },
+    { id: 'low',    label: 'Baja',    color: '#888888', r1: '24h', res: '72h', esc: '48h', sort_order: 3 },
+  ];
+  for (const p of PRIORITIES) {
+    await prisma.priority.upsert({ where: { id: p.id }, update: {}, create: { ...p, active: true } });
+  }
+
   await prisma.slaRule.createMany({
     skipDuplicates: true,
     data: [
